@@ -24,9 +24,11 @@ fn prints_matching_lines() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let stdout = String::from_utf8(output.stdout).expect("输出应为 UTF-8");
-    assert!(stdout.contains("I'm nobody! Who are you?"));
-    assert!(stdout.contains("Are you nobody, too?"));
-    assert!(!stdout.contains("How dreary to be somebody"));
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines,
+        vec!["I'm nobody! Who are you?", "Are you nobody, too?"]
+    );
 }
 
 #[test]
@@ -58,8 +60,7 @@ fn respects_case_when_environment_variable_is_absent() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let stdout = String::from_utf8(output.stdout).expect("输出应为 UTF-8");
-    assert!(!stdout.contains("I'm nobody! Who are you?"));
-    assert!(!stdout.contains("Are you nobody, too?"));
+    assert!(stdout.is_empty());
 }
 
 #[test]

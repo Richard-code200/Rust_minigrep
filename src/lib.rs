@@ -74,10 +74,25 @@ pub fn search_case_insensitive<'a>(query: &str, contents: &'a str) -> Vec<&'a st
         .collect()
 }
 
+pub fn search_with_line_numbers<'a>(query: &str, contents: &'a str) -> Vec<(usize, &'a str)> {
+    contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains(query))
+        .map(|(index, line)| (index + 1, line))
+        .collect()
+}
+
+pub fn search_case_insensitive_with_line_number<'a>(
+    query: &str,
+    contents: &'a str,
+) -> Vec<(usize, &'a str)> {
+    vec![]
+}
 #[cfg(test)]
 mod tests {
 
-    use super::{Config, search, search_case_insensitive};
+    use super::{Config, search, search_case_insensitive, search_with_line_numbers};
 
     #[test]
     fn find_lines_containing_query() {
@@ -154,5 +169,29 @@ mod tests {
         let query = "";
         let contents = "Rust\n\nPython";
         assert_eq!(vec!["Rust", "", "Python"], search(query, contents));
+    }
+
+    #[test]
+    fn preserves_original_line_numbers() {
+        let query = "Rust";
+        let contents = "Rust\nPython\nRust again";
+        assert_eq!(
+            vec![(1, "Rust"), (3, "Rust again")],
+            search_with_line_numbers(query, contents)
+        )
+    }
+
+    #[test]
+    fn empty_line_with_line_numbers() {
+        let query = "Rust";
+        let contents = "Python\n\nRust";
+        assert_eq!(vec![(3, "Rust")], search_with_line_numbers(query, contents))
+    }
+
+    #[test]
+    fn ignores_case_and_preserves() {
+        let query = "rUsT";
+        let contents = "Python\nRust is fast.\n\nTrust me.\nRust is useful.";
+        assert_eq!(vec![(2, "")], search_with_line_numbers(query, contents))
     }
 }
