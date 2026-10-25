@@ -5,21 +5,42 @@ pub struct Config {
     pub query: String,
     pub file_path: String,
     pub ignore_case: bool,
+    pub show_line_numbers: bool,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ConfigError {
+    MissingQuery,
+    MissingFilePath,
+    EmptyFilePath,
+    TooManyArguments,
+}
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            ConfigError::MissingQuery => "missing query",
+            ConfigError::MissingFilePath => "missing file path",
+            ConfigError::EmptyFilePath => "file path must not be empty",
+            ConfigError::TooManyArguments => "too many arguments",
+        };
+        write!(f, "{message}")
+    }
+}
 impl Config {
-    pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
+    pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, ConfigError> {
         args.next();
-        let query = args.next().ok_or("Insufficient parameters")?;
+        let query = args.next().ok_or(ConfigError::MissingQuery)?;
 
-        let file_path = args.next().ok_or("Insufficient parameters")?;
+        let file_path = args.next().ok_or(ConfigError::MissingFilePath)?;
+
+        let show_line_numbers = env::var("SHOW_LINE_NUMBERS").is_ok();
 
         if file_path.is_empty() {
-            return Err("file path must not be empty");
+            return Err(ConfigError::EmptyFilePath);
         }
 
         if args.next().is_some() {
-            return Err("too many arguments");
+            return Err(ConfigError::TooManyArguments);
         }
 
         let ignore_case = env::var("IGNORE_CASE").is_ok();
@@ -28,23 +49,48 @@ impl Config {
             query,
             file_path,
             ignore_case,
+            show_line_numbers,
         })
     }
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let contents = fs::read_to_string(config.file_path)?;
-    let lines = if config.ignore_case {
-        search_case_insensitive(&config.query, &contents)
+    if config.show_line_numbers {
+        let lines = if config.ignore_case {
+            search_case_insensitive_with_line_numbers(&config.query, &contents)
+        } else {
+            search_with_line_numbers(&config.query, &contents)
+        };
+        for (number, line) in lines {
+            println!("{number}:{line}");
+        }
     } else {
-        search(&config.query, &contents)
-    };
-    for line in lines {
-        println!("{line}");
+        let lines = if config.ignore_case {
+            search_case_insensitive(&config.query, &contents)
+        } else {
+            search(&config.query, &contents)
+        };
+        for line in lines {
+            println!("{line}");
+        }
     }
+
     Ok(())
 }
-
+/// 返回包含查询词的原始行,区分大小写,保持原有顺序
+///
+/// # Example
+/// ```
+/// use minigrep::search;
+///
+/// let contents = "Rust is fast.\nPython is readable.";
+/// let results = search("Rust", contents);
+///
+/// assert_eq!(results, vec!["Rust is fast."]);
+/// ```
+///
+/// 返回的行切片借自 contents, 不复制每行的字符串内容
 pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
     // let mut results = Vec::new();
     // for line in contents.lines() {
@@ -83,16 +129,25 @@ pub fn search_with_line_numbers<'a>(query: &str, contents: &'a str) -> Vec<(usiz
         .collect()
 }
 
-pub fn search_case_insensitive_with_line_number<'a>(
+pub fn search_case_insensitive_with_line_numbers<'a>(
     query: &str,
     contents: &'a str,
 ) -> Vec<(usize, &'a str)> {
-    vec![]
+    let lowercase_query = query.to_lowercase();
+    contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.to_lowercase().contains(lowercase_query.as_str()))
+        .map(|(index, line)| (index + 1, line))
+        .collect()
 }
 #[cfg(test)]
 mod tests {
 
-    use super::{Config, search, search_case_insensitive, search_with_line_numbers};
+    use super::{
+        Config, ConfigError, search, search_case_insensitive,
+        search_case_insensitive_with_line_numbers, search_with_line_numbers,
+    };
 
     #[test]
     fn find_lines_containing_query() {
@@ -149,7 +204,11 @@ mod tests {
     #[test]
     fn return_err_when_query_missing() {
         let args = ["minigrep"];
-        assert!(Config::build(args.into_iter().map(String::from)).is_err());
+        // assert!(Config::build(args.into_iter().map(String::from)).is_err());
+        let error = Config::build(args.into_iter().map(String::from))
+            .err()
+            .expect("缺少查询参数应返回错误");
+        assert_eq!(error, ConfigError::MissingQuery);
     }
 
     #[test]
@@ -189,9 +248,16 @@ mod tests {
     }
 
     #[test]
-    fn ignores_case_and_preserves() {
+    fn ignores_case_and_preserves_line_numbers() {
         let query = "rUsT";
-        let contents = "Python\nRust is fast.\n\nTrust me.\nRust is useful.";
-        assert_eq!(vec![(2, "")], search_with_line_numbers(query, contents))
+        let contents = "Python\nRust is fast.\n\nTrust me.\nRUST is useful.";
+        assert_eq!(
+            vec![
+                (2, "Rust is fast."),
+                (4, "Trust me."),
+                (5, "RUST is useful.")
+            ],
+            search_case_insensitive_with_line_numbers(query, contents)
+        )
     }
 }
