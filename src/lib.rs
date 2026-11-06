@@ -26,6 +26,7 @@ impl std::fmt::Display for ConfigError {
         write!(f, "{message}")
     }
 }
+impl std::error::Error for ConfigError {}
 impl Config {
     pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, ConfigError> {
         args.next();
@@ -190,7 +191,11 @@ mod tests {
     #[test]
     fn missing_path() {
         let args = ["minigrep", "nobody"];
-        assert!(Config::build(args.into_iter().map(String::from)).is_err());
+        // assert!(Config::build(args.into_iter().map(String::from)).is_err());
+        let error = Config::build(args.into_iter().map(String::from))
+            .err()
+            .expect("缺少路径应返回错误");
+        assert_eq!(error, ConfigError::MissingFilePath);
     }
 
     #[test]
@@ -214,13 +219,21 @@ mod tests {
     #[test]
     fn rejects_extra_arguments() {
         let args = ["minigrep", "nobody", "poem.txt", "extra"];
-        assert!(Config::build(args.into_iter().map(String::from)).is_err());
+        // assert!(Config::build(args.into_iter().map(String::from)).is_err());
+        let error = Config::build(args.into_iter().map(String::from))
+            .err()
+            .expect("查询参数过多应返回错误");
+        assert_eq!(error, ConfigError::TooManyArguments);
     }
 
     #[test]
     fn reject_empty_file_path() {
         let args = ["minigrep", "nobody", ""];
-        assert!(Config::build(args.into_iter().map(String::from)).is_err());
+        // assert!(Config::build(args.into_iter().map(String::from)).is_err());
+        let error = Config::build(args.into_iter().map(String::from))
+            .err()
+            .expect("查询路径为空应返回错误");
+        assert_eq!(error, ConfigError::EmptyFilePath);
     }
 
     #[test]
@@ -259,5 +272,18 @@ mod tests {
             ],
             search_case_insensitive_with_line_numbers(query, contents)
         )
+    }
+
+    fn assert_is_error<E: std::error::Error>() {}
+    #[test]
+    fn config_error_implements_error() {
+        assert_is_error::<ConfigError>()
+    }
+
+    #[test]
+    fn boxed_config_error_preserves_message() {
+        let error: Box<dyn std::error::Error> = ConfigError::MissingQuery.into();
+
+        assert_eq!(error.to_string(), "missing query")
     }
 }
